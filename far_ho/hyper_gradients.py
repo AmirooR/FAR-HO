@@ -277,7 +277,7 @@ class ReverseHG(HyperGradient):
 
         ss = session or tf.get_default_session()
 
-        self._history.clear()
+        del self._history[:]
         if not online:
             _fd = utils.maybe_call(initializer_feed_dict, utils.maybe_eval(global_step, ss))
             self._save_history(ss.run(self.initialization, feed_dict=_fd))
