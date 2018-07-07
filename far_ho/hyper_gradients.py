@@ -196,7 +196,7 @@ class ReverseHG(HyperGradient):
             # failure...
             doo_ds = tf.gradients(outer_objective, list(optimizer_dict.state))
 
-            alphas = self._create_lagrangian_multipliers(optimizer_dict, doo_ds)
+            alphas, lm_init_ops = self._create_lagrangian_multipliers(optimizer_dict, doo_ds) #two things
 
             alpha_vec = utils.vectorize_all(alphas)
             dyn_vec = utils.vectorize_all(list(optimizer_dict.dynamics))
@@ -235,22 +235,42 @@ class ReverseHG(HyperGradient):
 
             [self._hypergrad_dictionary[h].append(hg) for h, hg in zip(hyper_list, hyper_grad_vars)]
 
+            #TODO add here the initializer of alphas
             self._reverse_initializer = tf.group(self._reverse_initializer,
                                                  tf.variables_initializer(alphas),
                                                  tf.variables_initializer([h for h in hyper_grad_vars
-                                                                           if hasattr(h, 'initializer')]))  # some ->
+                                                                           if hasattr(h, 'initializer')]),
+                                                 *lm_init_ops)  # some ->
             # hypergradients (those coming form initial dynamics) might be just tensors and not variables...
 
             return hyper_list
 
     @staticmethod
     def _create_lagrangian_multipliers(optimizer_dict, doo_ds):
-        lag_mul = [slot_creator.create_slot(v.initialized_value(), utils.val_or_zero(der, v), 'alpha') for v, der
-                   in zip(optimizer_dict.state, doo_ds)]
+        for v in optimizer_dict.state:
+          print('LM:: {}'.format(v))
+        lag_mul = []
+        init_ops = []
+        for v, der in zip(optimizer_dict.state, doo_ds):
+          lm = slot_creator.create_slot(v.initialized_value(), utils.val_or_zero(None, v),'alpha')
+          init_op = lm.assign(utils.val_or_zero(der,v))
+          lag_mul.append(lm)
+          init_ops.append(init_op)
+        #from IPython import embed;embed()
+        #utils.val_or_zero(der, v) assign lag_mul <- utils.val_or_zero ==> op
+        # merge -> return
+        #
+
+        #lag_mul = [slot_creator.create_slot(v.initialized_value(), utils.val_or_zero(None, v), 'alpha') for v, der
+        #           in zip(optimizer_dict.state, doo_ds)]
+
+        #lag_mul = [slot_creator.create_slot(tf.truncated_normal(v.shape, stddev=0.01), utils.val_or_zero(der, v), 'alpha') for v, der
+        #           in zip(optimizer_dict.state, doo_ds)]
+
         [tf.add_to_collection(utils.GraphKeys.LAGRANGIAN_MULTIPLIERS, lm) for lm in lag_mul]
         utils.remove_from_collection(utils.GraphKeys.GLOBAL_VARIABLES, *lag_mul)
         # this prevents the 'automatic' initialization with tf.global_variables_initializer.
-        return lag_mul
+        return lag_mul, init_ops
 
     @staticmethod
     def _create_hypergradient(hyper, doo_dhypers):
